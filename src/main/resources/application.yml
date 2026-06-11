@@ -1,0 +1,34 @@
+server:
+  port: 8080
+
+spring:
+  # PostgreSQL ???
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ai_research_db?useUnicode=true&characterEncoding=utf-8
+    username: postgres
+    password: 123456
+    driver-class-name: org.postgresql.Driver
+
+  # Spring AI PGVector ??
+    # Spring AI ?????????????
+    ai:
+      dashscope:
+        api-key: sk-3906fd9bb7044413911675be69711fdc
+        chat:
+          options:
+            model: qwen-turbo # ????
+        embedding:
+          options:
+            model: text-embedding-v3 # ??Embedding??
+
+# Postgres ???????
+spring.ai.vectorstore.postgres:
+  index-type: IVF_FLAT
+  distance-type: COSINE_DISTANCE
+  embedding-dimension: 1024 # ????????
+
+# MyBatis-Plus ??
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true # ??????
