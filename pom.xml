@@ -65,12 +65,6 @@
             <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-core</artifactId>
-            <version>1.1.2</version>
-        </dependency>
-
 
         <dependency>
 			<groupId>org.postgresql</groupId>

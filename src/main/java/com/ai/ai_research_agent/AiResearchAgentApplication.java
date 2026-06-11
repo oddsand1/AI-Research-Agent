@@ -10,6 +10,7 @@ public class AiResearchAgentApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(AiResearchAgentApplication.class, args);
+        System.out.println("✅✅✅✅✅✅------------     Java后端启动成功！---------     ✅✅✅✅✅✅");
 	}
 
 }
