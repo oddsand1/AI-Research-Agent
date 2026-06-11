@@ -12,6 +12,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class EmbeddingService {
+
+    //自动注入yml里配置的embedding模型（text-embedding-v3）
     private final EmbeddingModel embeddingModel;
 
 
