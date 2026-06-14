@@ -101,6 +101,13 @@
         </dependency>
 
 
+        <!-- 网页HTML解析、内容清洗、 网页爬取工具库 -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
+
     </dependencies>
 
 	<dependencyManagement>

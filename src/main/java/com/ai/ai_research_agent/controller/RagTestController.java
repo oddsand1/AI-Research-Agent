@@ -48,14 +48,5 @@ public class RagTestController {
         return Result.success(context);
     }
 
-    /**
-     * 清空知识库
-     */
-    @GetMapping("/clear")
-    public Result<String> clear() {
-        ragRetrievalService.clearAllKnowledge();
-        return Result.success("知识库已清空");
-    }
-
 
 }
