@@ -12,6 +12,9 @@ public class WebSearchTool {
     @Tool(name="web_search",description="用于检索互联网实时信息、技术文档、行业知识、热点内容。当用户问题需要外部最新资料时调用该工具。")
     public String webSearch(@ToolParam(description = "搜索关键词/问题，不能为空") String keyword){
 
+        if(keyword==null || keyword.isBlank()){
+            return "搜索关键词不能为空";
+        }
         log.info("【搜索工具】执行搜索，关键词：{}", keyword);
         try {
             String result = switch(keyword.trim()){
