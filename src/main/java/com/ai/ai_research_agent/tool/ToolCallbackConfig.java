@@ -7,7 +7,6 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.util.List;
 
 // 工具回调注册 + 工具分组（供Agent调用）
 
