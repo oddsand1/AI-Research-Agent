@@ -1,8 +1,4 @@
 package com.ai.ai_research_agent.tool;
-
-// JSON结构化格式化工具
-
-
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONWriter;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +7,10 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+/**
+ * JSON结构化格式化工具
+ * 将自然语言文本转换为标准JSON，用于生成结构化报告
+ */
 @Slf4j
 @Component
 public class JsonFormatTool {
@@ -35,25 +35,7 @@ public class JsonFormatTool {
     }
 
 
-
-
-
     // 包装类，用于将原始文本内容转换为JSON格式，使其符合JSON规范
-    private static class ReportData{
-
-        //若要自定义字段名，可以使用 @JSONField(name = "content")
-        private String reportContent;
-
-        public ReportData(String reportContent) {
-            this.reportContent = reportContent;
-        }
-
-        public String getReportContent() {//FastJSON 会扫描类中的所有 getter 方法(以get开头),并根据方法名生成JSON key(字段名)
-            return reportContent;
-        }
-
-        public void setReportContent(String reportContent) {
-            this.reportContent = reportContent;
-        }
-    }
+    // record序列化
+    private record ReportData(String reportContent) {}
 }
