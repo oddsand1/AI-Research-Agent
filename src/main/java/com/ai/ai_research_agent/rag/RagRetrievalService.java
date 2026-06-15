@@ -39,10 +39,11 @@ public class RagRetrievalService {
         for (int i = 0; i < chunks.size(); i++) {
             String chunk = chunks.get(i);
             float[] embedding = embeddingList.get(i);
-            //1.存入自定义业务向量表
+            //1.存入自定义业务向量表（mybatis-plus）
             VectorKnowledge knowledge=VectorKnowledge.fromDocument(new Document(chunk),embedding);
             vectorKnowledgeMapper.insert(knowledge);
             //2.存入Spring AI 标准Postgres向量库（用于检索）
+            //vectorStore.add方法内部会自动调用EmbeddingModel生成向量
             vectorStore.add(List.of(new Document(chunk)));
         }
     }
