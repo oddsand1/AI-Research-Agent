@@ -10,7 +10,6 @@ import com.ai.ai_research_agent.mapper.ResearchReportMapper;
 import com.ai.ai_research_agent.mapper.ResearchTaskMapper;
 import com.ai.ai_research_agent.mapper.VectorKnowledgeMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
@@ -62,7 +61,7 @@ public class DbQueryTool {
             wrapper.like(ResearchTask::getUserQuery, keyword);
         }
         List<ResearchTask> list=taskMapper.selectList(wrapper);
-        return "历史任务数据:"+list;
+        return "历史任务数据:"+list;   //返回整个对象，包含实体类里的所有信息
     }
 
 
@@ -73,7 +72,7 @@ public class DbQueryTool {
             wrapper.like(ResearchReport::getContent,keyword);
         }
         List<ResearchReport> list=reportMapper.selectList(wrapper);
-        return "历史报告数据:"+list;//返回整个对象，包含实体类里的所有信息
+        return "历史报告数据:"+list.stream().map(ResearchReport::getContent).toList();
     }
 
 
