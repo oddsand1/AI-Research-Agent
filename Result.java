@@ -17,8 +17,12 @@ public class Result<T> {
     }
 
     public static <T> Result<T> fail(String msg) {
+        return fail(500, msg);
+    }
+
+    public static <T> Result<T> fail(Integer code, String msg) {
         Result<T> result = new Result<>();
-        result.setCode(500);
+        result.setCode(code);
         result.setMsg(msg);
         return result;
     }
