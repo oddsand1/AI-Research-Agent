@@ -6,14 +6,21 @@ import com.ai.ai_research_agent.mapper.VectorKnowledgeMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RagRetrievalService {
@@ -75,4 +82,19 @@ public class RagRetrievalService {
                 .collect(Collectors.joining("\n---\n"));
     }
 
+
+    /**
+     * 解析 PDF 文件，提取纯文本内容
+     */
+    public String extractPdfContent(MultipartFile file) {
+        try(PDDocument document= Loader.loadPDF(file.getBytes())){
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setSortByPosition(true);
+            String text=stripper.getText(document);
+            log.info("PDF解析完成，页数：{}，文本长度：{}", document.getNumberOfPages(), text.length());
+            return text;
+        }catch (IOException e){
+            throw new IllegalArgumentException("PDF解析失败:"+e.getMessage(),e);
+        }
+    }
 }
