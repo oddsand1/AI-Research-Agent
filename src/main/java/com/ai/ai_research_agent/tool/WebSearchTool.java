@@ -1,6 +1,10 @@
 package com.ai.ai_research_agent.tool;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -9,24 +13,41 @@ import org.springframework.stereotype.Component;
 @Component
 public class WebSearchTool {
 
-    @Tool(name="web_search",description="用于检索互联网实时信息、技术文档、行业知识、热点内容。当用户问题需要外部最新资料时调用该工具。")
-    public String webSearch(@ToolParam(description = "搜索关键词/问题，不能为空") String keyword){
-
-        if(keyword==null || keyword.isBlank()){
+    @Tool(name = "web_search", description = "通过 DuckDuckGo 检索互联网实时信息")
+    public String webSearch(@ToolParam(description = "搜索关键词") String keyword) {
+        if (keyword == null || keyword.isBlank()) {
             return "搜索关键词不能为空";
         }
-        log.info("【搜索工具】执行搜索，关键词：{}", keyword);
+        log.info("【搜索工具】DuckDuckGo 搜索，关键词：{}", keyword);
         try {
-            String result = switch(keyword.trim()){
-                case "Spring AI Alibaba" -> "Spring AI Alibaba 是阿里云基于 Spring AI 生态打造的 AI 应用开发框架，版本为1.x系列，原生支持通义大模型、RAG检索、多智能体编排、注解式工具调用、PostgreSQL+pgvector向量库等企业级能力，完美兼容 Spring Boot 3。";
-                case "多智能体RAG系统" -> "多智能体RAG系统基于分工式智能体架构，结合检索增强生成技术，由规划、搜索、分析、检索、报告五大智能体协同完成全链路任务，广泛用于企业智能调研、文档分析、知识问答场景。";
-                default -> String.format("【联网搜索结果】关键词：%s，未查询到相关公开资料，请调整关键词重试。", keyword);
-            };
-            log.info("【搜索工具】执行完成");
-            return result;
+            String url = "https://html.duckduckgo.com/html/?q=" + keyword;
+            Document doc = Jsoup.connect(url)
+                    .timeout(8000)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .get();
+
+            Elements results = doc.select(".result");
+            if (results.isEmpty()) {
+                return "DuckDuckGo 未获取到结果，关键词：" + keyword;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            int count = Math.min(results.size(), 5);
+            for (int i = 0; i < count; i++) {
+                Element r = results.get(i);
+                String title = r.selectFirst(".result__title") != null
+                        ? r.selectFirst(".result__title").text() : "";
+                String snippet = r.selectFirst(".result__snippet") != null
+                        ? r.selectFirst(".result__snippet").text() : "";
+                String link = r.selectFirst(".result__url") != null
+                        ? r.selectFirst(".result__url").text().trim() : "";
+                sb.append(String.format("%d. %s\n   %s\n   %s\n\n", i + 1, title, snippet, link));
+            }
+            log.info("【搜索工具】完成，结果数：{}", count);
+            return sb.toString();
         } catch (Exception e) {
             log.error("【搜索工具】执行失败", e);
-            return "工具执行异常：" + e.getMessage();
+            return "搜索异常：" + e.getMessage();
         }
     }
 }

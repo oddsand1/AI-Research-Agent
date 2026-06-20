@@ -40,7 +40,7 @@ public class ReportAgent {
             String[] sections = result.split("\n(?=## )");
             for (String section : sections) {
                 if (!section.isBlank()) {
-                    ragRetrievalService.storeDocument(section.trim());
+                    ragRetrievalService.storeDocument(section.trim(), "report");
                 }
             }
             log.info("【报告智能体】报告已按{}个章节拆分向量化入库", sections.length);

@@ -39,7 +39,7 @@ public class RagController {
                 return Result.fail(400,"文件格式错误，仅支持TXT和PDF格式");
             }
 
-            ragRetrievalService.storeDocument(content);
+            ragRetrievalService.storeDocument(content, "upload");
             return Result.success("文档上传并向量化入库成功");
         }catch(Exception e){
             return Result.fail(500,"文档读取失败："+e.getMessage());
@@ -52,7 +52,7 @@ public class RagController {
      */
     @PostMapping("/store")
     public Result<String> storeDocument(@Valid @RequestBody RagStoreDTO dto){
-        ragRetrievalService.storeDocument(dto.getContent());
+        ragRetrievalService.storeDocument(dto.getContent(), "upload");
         return Result.success("文档入库+向量化完成");
     }
 

@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -33,58 +35,106 @@ public class RagRetrievalService {
 
     /**
      * 1. 文档入库：文本 → 分片 → 向量化 → 存入PG向量库
+     * @param source 来源：upload(手动上传) / report(报告片段)
      */
-    public void storeDocument(String rawText) {
-        //文本切片
+    public void storeDocument(String rawText, String source) {
         List<String> chunks = textSplitter.split(rawText);
         if(CollectionUtils.isEmpty(chunks)){
             return;
         }
-        //批量生成向量
         List<float[]> embeddingList = embeddingService.batchEmbedding(chunks);
-        //遍历入库
         for (int i = 0; i < chunks.size(); i++) {
             String chunk = chunks.get(i);
             float[] embedding = embeddingList.get(i);
-            //1.存入自定义业务向量表（mybatis-plus）
-            VectorKnowledge knowledge=VectorKnowledge.fromDocument(new Document(chunk),embedding);
+            VectorKnowledge knowledge = VectorKnowledge.fromDocument(new Document(chunk), embedding, source);
             vectorKnowledgeMapper.insert(knowledge);
-            //2.存入Spring AI 标准Postgres向量库（用于检索）
-            //vectorStore.add方法内部会自动调用EmbeddingModel生成向量
             vectorStore.add(List.of(new Document(chunk)));
         }
     }
 
     /**
-     * 2. 相似度检索：根据用户问题召回相似知识库内容
-     *  query 用户提问
-     *  topK 召回条数
-     * @return 拼接后的上下文文本
+     * 2. 混合检索：向量相似度 + 关键词匹配，RRF倒数排名融合
      */
     public String retrieveContext(String query, int topK) {
-        // 1. 构建检索请求：余弦相似度匹配
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(query)   // 用户的查询问题
-                .topK(topK)   // 返回最相似的 topK 条
-                .similarityThreshold(0.7)   // 相似度阈值，低于0.7的结果被过滤
-                .build();
-
-        // 2. 执行相似度搜索
-        List<Document> documents = vectorStore.similaritySearch(searchRequest);
-
-        // 3. 处理空结果
-        if (CollectionUtils.isEmpty(documents)) {
+        //1.向量检索
+        List<Document> vectorResults=vectorSearch(query,topK * 2);
+        log.info("向量检索召回：{} 条", vectorResults.size());
+        //2.关键词检索（统一转为 Document）
+        List<Document> keywordResults = keywordSearch(query, topK * 2);
+        log.info("关键词检索召回：{} 条", keywordResults.size());
+        //3.RRF融合
+        List<String> merged=rrfMerge(vectorResults,keywordResults,topK);
+        log.info("RRF融合后输出：{} 条", merged.size());
+        if(merged.isEmpty()){
             return "";
         }
-        // 4. 拼接检索结果作为LLM上下文
-        return documents.stream()
-                .map(Document::getText)
-                .collect(Collectors.joining("\n---\n"));
+        return String.join("\n---\n",merged);
+    }
+
+    /**
+     * 向量检索：pgvector 余弦相似度
+     */
+    private List<Document> vectorSearch(String query,int topK){
+        SearchRequest searchRequest=SearchRequest.builder()
+                .query(query)
+                .topK(topK)
+                .similarityThreshold(0.7)
+                .build();
+        return vectorStore.similaritySearch(searchRequest);
+    }
+
+    /**
+     * 关键词检索：MySQL LIKE 模糊匹配，统一转为 Document
+     */
+    private List<Document> keywordSearch(String query, int limit) {
+        LambdaQueryWrapper<VectorKnowledge> wrapper = new LambdaQueryWrapper<>();
+        String[] terms = query.split("[\\s，,。.！!？?、；;：:]+");
+        wrapper.and(w -> {
+            for (int i = 0; i < terms.length; i++) {
+                if (terms[i].length() >= 2) {
+                    if (i == 0) {
+                        w.like(VectorKnowledge::getContent, terms[i]);
+                    } else {
+                        w.or().like(VectorKnowledge::getContent, terms[i]);
+                    }
+                }
+            }
+        });
+        wrapper.last("limit " + limit);
+        return vectorKnowledgeMapper.selectList(wrapper).stream()
+                .map(vk -> new Document(vk.getContent()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * RRF 倒数排名融合算法
+     * RRF_score(doc) = Σ 1/(k + rank_i)，k=60
+     * 两个列表都已按相关度从高到低排序
+     */
+    private List<String> rrfMerge(List<Document> vectorDocs, List<Document> keywordDocs, int topK) {
+        Map<String, Double> scoreMap = new LinkedHashMap<>();
+        double k = 60;
+
+        for (int i = 0; i < vectorDocs.size(); i++) {
+            scoreMap.merge(vectorDocs.get(i).getText().trim(), 1.0 / (k + i + 1), Double::sum);
+        }
+        for (int i = 0; i < keywordDocs.size(); i++) {
+            scoreMap.merge(keywordDocs.get(i).getText().trim(), 1.0 / (k + i + 1), Double::sum);
+        }
+
+        return scoreMap.entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                .limit(topK)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
     }
 
 
+
+
+
     /**
-     * 解析 PDF 文件，提取纯文本内容
+     *  3.解析 PDF 文件，提取纯文本内容
      */
     public String extractPdfContent(MultipartFile file) {
         try(PDDocument document= Loader.loadPDF(file.getBytes())){

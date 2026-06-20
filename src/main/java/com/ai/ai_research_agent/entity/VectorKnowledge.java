@@ -19,13 +19,15 @@ public class VectorKnowledge {
     @TableField(typeHandler = FloatArrayTypeHandler.class)
     private float[] embedding;
 
+    private String source;
+
     private LocalDateTime createTime;
 
-    //工具方法：Document 转 实体 （适配Spring AI）
-    public static VectorKnowledge fromDocument(Document doc, float[] embedding){
+    public static VectorKnowledge fromDocument(Document doc, float[] embedding, String source){
         VectorKnowledge vk = new VectorKnowledge();
         vk.setContent(doc.getText());
         vk.setEmbedding(embedding);
+        vk.setSource(source);
         return vk;
     }
 }
