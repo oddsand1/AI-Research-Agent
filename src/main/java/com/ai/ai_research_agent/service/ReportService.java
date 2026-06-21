@@ -44,10 +44,18 @@ public class ReportService {
      */
     public List<ReportResponseVO> listReports(ReportQueryDTO dto) {
         LambdaQueryWrapper<ResearchReport> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(ResearchReport::getTaskId, dto.getTaskId());
-        wrapper.like(ResearchReport::getContent, dto.getKeyword());
-        wrapper.ge(ResearchReport::getCreateTime, LocalDateTime.parse(dto.getStartTime()));
-        wrapper.le(ResearchReport::getCreateTime, LocalDateTime.parse(dto.getEndTime()));
+        if (dto.getTaskId() != null) {
+            wrapper.eq(ResearchReport::getTaskId, dto.getTaskId());
+        }
+        if (dto.getKeyword() != null && !dto.getKeyword().isBlank()) {
+            wrapper.like(ResearchReport::getContent, dto.getKeyword());
+        }
+        if (dto.getStartTime() != null && !dto.getStartTime().isBlank()) {
+            wrapper.ge(ResearchReport::getCreateTime, LocalDateTime.parse(dto.getStartTime()));
+        }
+        if (dto.getEndTime() != null && !dto.getEndTime().isBlank()) {
+            wrapper.le(ResearchReport::getCreateTime, LocalDateTime.parse(dto.getEndTime()));
+        }
         wrapper.orderByDesc(ResearchReport::getCreateTime);
 
         //创建MP分页对象
