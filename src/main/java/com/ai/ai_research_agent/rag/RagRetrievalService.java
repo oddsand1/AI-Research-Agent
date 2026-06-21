@@ -49,26 +49,29 @@ public class RagRetrievalService {
     }
 
     /**
-     * 2. 混合检索：Query扩写 → 去重 -> 向量+关键词多路召回  → RRF融合
+     * 2. 混合检索：Query扩写 → 向量+关键词多路召回 → RRF融合 → LLM Rerank
      */
     public String retrieveContext(String query, int topK) {
         // 1. Query 扩写
         List<String> queries = expandQuery(query);
         queries = new ArrayList<>(new LinkedHashSet<>(queries));// 精确字符串去重
-        // 2. 多查询并行检索，收集全部结果
+        // 2. 多查询并行检索
         List<Document> vectorResults = new ArrayList<>();
         List<Document> keywordResults = new ArrayList<>();
         for (String q : queries) {
             vectorResults.addAll(vectorSearch(q, topK));
             keywordResults.addAll(keywordSearch(q, topK));
         }
-        // 3. RRF融合
-        List<String> merged = rrfMerge(vectorResults, keywordResults, topK);
-        log.info("RRF融合后输出：{} 条", merged.size());
-        if (merged.isEmpty()) {
+        // 3. RRF融合，多取一些候选给 Rerank
+        List<String> candidates = rrfMerge(vectorResults, keywordResults, topK * 2);
+        log.info("RRF融合候选：{} 条", candidates.size());
+        if (candidates.isEmpty()) {
             return "";
         }
-        return String.join("\n---\n", merged);
+        // 4. LLM Rerank 精排
+        List<String> ranked = llmRerank(query, candidates, topK);
+        log.info("Rerank后输出：{} 条", ranked.size());
+        return String.join("\n---\n", ranked);
     }
 
     /**
@@ -90,6 +93,7 @@ public class RagRetrievalService {
         }
         return sb.append("]").toString();
     }
+
 
     /**
      * 关键词检索：PostgreSQL LIKE 模糊匹配，统一转为 Document
@@ -113,6 +117,7 @@ public class RagRetrievalService {
                 .map(vk -> new Document(vk.getContent()))
                 .collect(Collectors.toList());
     }
+
 
     /**
      *  Query 扩写：LLM 生成多角度查询，提升召回率
@@ -164,6 +169,55 @@ public class RagRetrievalService {
     }
 
 
+    /**
+     *  LLM Rerank：用 LLM 对候选文档打分重排，取 topK
+     */
+    private List<String> llmRerank(String query,List<String> candidates,int topK){
+        if(candidates.size()<=topK){
+            return candidates;
+        }
+        StringBuilder sb=new StringBuilder();
+        for (int i = 0; i < candidates.size(); i++) {
+            sb.append(String.format("[%d] %s\n\n", i, candidates.get(i)));
+        }
+        String prompt=String.format("""
+            你是检索质量评估专家，请对以下候选文档进行相关性打分。
+            【用户问题】%s
+            【候选文档】
+            %s
+            要求：选出与问题最相关的%d条文档，每行输出一个编号（如 3,7,1,5），按相关度从高到低排序。
+            只输出编号列表，用逗号分隔。
+            """, query, sb.toString(), topK);
+        String raw=chatModel.call(prompt).trim();
+        List<Integer> order=parseRerankOrder(raw,candidates.size());
+        List<String> result=new ArrayList<>();
+        for (int idx : order) {
+            if(result.size()>=topK){
+                break;
+            }
+            if(idx>=0 && idx< candidates.size()){
+                result.add(candidates.get(idx));
+            }
+        }
+        if(result.isEmpty()){
+            log.warn("Rerank解析失败，使用原始排序");
+            return candidates.subList(0, Math.min(topK, candidates.size()));
+        }
+        return result;
+    }
+
+    private List<Integer> parseRerankOrder(String raw, int max) {
+        List<Integer> order = new ArrayList<>();
+        for (String token : raw.split("[,\\s]+")) {
+            try {
+                int idx = Integer.parseInt(token.trim());
+                if (idx >= 0 && idx < max && !order.contains(idx)) {
+                    order.add(idx);
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+        return order;
+    }
 
 
 
