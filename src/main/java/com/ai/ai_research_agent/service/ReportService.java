@@ -33,8 +33,8 @@ public class ReportService {
         log.info("报告已入库，报告ID：{}", report.getId());
     }
 
-    public void vectorizeReport(String content) {
-        ragRetrievalService.storeDocument(content);
+    public void vectorizeReport(String content,String source) {
+        ragRetrievalService.storeDocument(content,source);
         log.info("报告已向量化入库");
     }
 

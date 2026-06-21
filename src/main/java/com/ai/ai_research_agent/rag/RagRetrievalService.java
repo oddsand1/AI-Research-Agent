@@ -12,16 +12,11 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -30,7 +25,6 @@ import java.util.stream.Collectors;
 public class RagRetrievalService {
 
     private final EmbeddingService embeddingService;
-    private final VectorStore vectorStore;
     private final TextSplitter textSplitter;
     private final VectorKnowledgeMapper vectorKnowledgeMapper;
     private final ChatModel chatModel;
@@ -51,43 +45,54 @@ public class RagRetrievalService {
             float[] embedding = embeddingList.get(i);
             VectorKnowledge knowledge = VectorKnowledge.fromDocument(new Document(chunk), embedding, source);
             vectorKnowledgeMapper.insert(knowledge);
-            vectorStore.add(List.of(new Document(chunk)));
         }
     }
 
     /**
-     * 2. 混合检索：向量相似度 + 关键词匹配，RRF倒数排名融合
+     * 2. 混合检索：Query扩写 → 去重 -> 向量+关键词多路召回  → RRF融合
      */
     public String retrieveContext(String query, int topK) {
-        //1.向量检索
-        List<Document> vectorResults=vectorSearch(query,topK * 2);
-        log.info("向量检索召回：{} 条", vectorResults.size());
-        //2.关键词检索（统一转为 Document）
-        List<Document> keywordResults = keywordSearch(query, topK * 2);
-        log.info("关键词检索召回：{} 条", keywordResults.size());
-        //3.RRF融合
-        List<String> merged=rrfMerge(vectorResults,keywordResults,topK);
+        // 1. Query 扩写
+        List<String> queries = expandQuery(query);
+        queries = new ArrayList<>(new LinkedHashSet<>(queries));// 精确字符串去重
+        // 2. 多查询并行检索，收集全部结果
+        List<Document> vectorResults = new ArrayList<>();
+        List<Document> keywordResults = new ArrayList<>();
+        for (String q : queries) {
+            vectorResults.addAll(vectorSearch(q, topK));
+            keywordResults.addAll(keywordSearch(q, topK));
+        }
+        // 3. RRF融合
+        List<String> merged = rrfMerge(vectorResults, keywordResults, topK);
         log.info("RRF融合后输出：{} 条", merged.size());
-        if(merged.isEmpty()){
+        if (merged.isEmpty()) {
             return "";
         }
-        return String.join("\n---\n",merged);
+        return String.join("\n---\n", merged);
     }
 
     /**
-     * 向量检索：pgvector 余弦相似度
+     * 向量检索：查 vector_knowledge 表，pgvector 余弦相似度
      */
-    private List<Document> vectorSearch(String query,int topK){
-        SearchRequest searchRequest=SearchRequest.builder()
-                .query(query)
-                .topK(topK)
-                .similarityThreshold(0.7)
-                .build();
-        return vectorStore.similaritySearch(searchRequest);
+    private List<Document> vectorSearch(String query, int topK) {
+        float[] qEmbedding = embeddingService.embed(query);
+        String vecStr = toVectorString(qEmbedding);
+        return vectorKnowledgeMapper.vectorSearch(vecStr, 0.5, topK).stream()
+                .map(vk -> new Document(vk.getContent()))
+                .collect(Collectors.toList());
+    }
+
+    private String toVectorString(float[] embedding) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < embedding.length; i++) {
+            if (i > 0) sb.append(",");
+            sb.append(embedding[i]);
+        }
+        return sb.append("]").toString();
     }
 
     /**
-     * 关键词检索：MySQL LIKE 模糊匹配，统一转为 Document
+     * 关键词检索：PostgreSQL LIKE 模糊匹配，统一转为 Document
      */
     private List<Document> keywordSearch(String query, int limit) {
         LambdaQueryWrapper<VectorKnowledge> wrapper = new LambdaQueryWrapper<>();
@@ -108,7 +113,6 @@ public class RagRetrievalService {
                 .map(vk -> new Document(vk.getContent()))
                 .collect(Collectors.toList());
     }
-
 
     /**
      *  Query 扩写：LLM 生成多角度查询，提升召回率
@@ -136,7 +140,6 @@ public class RagRetrievalService {
     }
 
 
-
     /**
      * RRF 倒数排名融合算法
      * RRF_score(doc) = Σ 1/(k + rank_i)，k=60
@@ -159,6 +162,7 @@ public class RagRetrievalService {
                 .map(Map.Entry::getKey)
                 .collect(Collectors.toList());
     }
+
 
 
 

@@ -20,12 +20,6 @@ spring:
         options:
           model: text-embedding-v3 # Embedding
 
-# Postgres
-spring.ai.vectorstore.postgres:
-  index-type: IVF_FLAT
-  distance-type: COSINE_DISTANCE
-  embedding-dimension: 1024
-  initialize-schema: false # 我们已手动建表，关闭自动初始化
 
 # MyBatis-Plus
 mybatis-plus:

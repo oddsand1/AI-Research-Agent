@@ -20,7 +20,7 @@ public class EmbeddingService {
     /**
      * 单个文本生成向量
      */
-    public float[] getEmbedding(String content) {
+    public float[] embed(String content) {
         return embeddingModel.embed(content);
     }
 
