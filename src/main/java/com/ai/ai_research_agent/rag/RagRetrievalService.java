@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +33,7 @@ public class RagRetrievalService {
     private final VectorStore vectorStore;
     private final TextSplitter textSplitter;
     private final VectorKnowledgeMapper vectorKnowledgeMapper;
+    private final ChatModel chatModel;
 
 
     /**
@@ -105,6 +108,34 @@ public class RagRetrievalService {
                 .map(vk -> new Document(vk.getContent()))
                 .collect(Collectors.toList());
     }
+
+
+    /**
+     *  Query 扩写：LLM 生成多角度查询，提升召回率
+     */
+    private List<String> expandQuery(String query){
+        String prompt="""
+        你是检索专家，将用户问题扩展为3个不同角度的查询，提高召回率。
+        要求：角度互补、措辞不同、每个不超过30字。
+        只输出查询列表，每行一个，不要编号。
+
+        用户问题：%s
+        """.formatted(query);
+
+        String raw=chatModel.call(prompt);
+        List<String> expanded=new ArrayList<>();
+        expanded.add(query);
+        for(String line: raw.split("\n")){
+            String q=line.replaceAll("^[\\d\\.\\-、]+", "").trim();
+            if(!q.isEmpty() && q.length()>=3){
+                expanded.add(q);
+            }
+        }
+        log.info("Query扩写：{} → {} 条", query, expanded.size());
+        return expanded;
+    }
+
+
 
     /**
      * RRF 倒数排名融合算法
