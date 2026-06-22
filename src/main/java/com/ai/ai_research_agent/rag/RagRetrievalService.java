@@ -7,15 +7,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.CollectionUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.document.Document;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -35,54 +29,94 @@ public class RagRetrievalService {
      * @param source 来源：upload(手动上传) / report(报告片段)
      */
     public void storeDocument(String rawText, String source) {
+        storeDocumentWithMeta(rawText, source, null, null, null, null, null);
+    }
+
+    /**
+     * 带 PDF 元数据的文档入库
+     */
+    public void storeDocumentWithMeta(String rawText, String source,
+                                      String docId, String docTitle,
+                                      Integer pageNum, String chunkType,
+                                      String context) {
         List<String> chunks = textSplitter.split(rawText);
-        if(CollectionUtils.isEmpty(chunks)){
+        if (CollectionUtils.isEmpty(chunks)) {
             return;
         }
         List<float[]> embeddingList = embeddingService.batchEmbedding(chunks);
         for (int i = 0; i < chunks.size(); i++) {
             String chunk = chunks.get(i);
             float[] embedding = embeddingList.get(i);
-            VectorKnowledge knowledge = VectorKnowledge.fromDocument(new Document(chunk), embedding, source);
+            VectorKnowledge knowledge = new VectorKnowledge();
+            knowledge.setContent(chunk);
+            knowledge.setEmbedding(embedding);
+            knowledge.setSource(source);
+            knowledge.setDocId(docId);
+            knowledge.setDocTitle(docTitle);
+            knowledge.setPageNum(pageNum);
+            knowledge.setChunkType(chunkType);
+            knowledge.setContext(context);
             vectorKnowledgeMapper.insert(knowledge);
         }
     }
 
     /**
-     * 2. 混合检索：Query扩写 → 向量+关键词多路召回 → RRF融合 → LLM Rerank
+     * 2. 混合检索：Query扩写 → 向量+关键词多路召回 → RRF融合 → LLM Rerank → 带引用
      */
     public String retrieveContext(String query, int topK) {
-        // 1. Query 扩写
+        List<VectorKnowledge> results = retrieveWithMeta(query, topK);
+        if (results.isEmpty()) {
+            return "";
+        }
+        return results.stream()
+                .map(this::formatCitation)
+                .collect(Collectors.joining("\n---\n"));
+    }
+
+    /**
+     * 带引用元数据的检索（供 PdfTool 和评测使用）
+     */
+    public List<VectorKnowledge> retrieveWithMeta(String query, int topK) {
         List<String> queries = expandQuery(query);
-        queries = new ArrayList<>(new LinkedHashSet<>(queries));// 精确字符串去重
-        // 2. 多查询并行检索
-        List<Document> vectorResults = new ArrayList<>();
-        List<Document> keywordResults = new ArrayList<>();
+        queries = new ArrayList<>(new LinkedHashSet<>(queries));
+
+        List<VectorKnowledge> vectorResults = new ArrayList<>();
+        List<VectorKnowledge> keywordResults = new ArrayList<>();
         for (String q : queries) {
             vectorResults.addAll(vectorSearch(q, topK));
             keywordResults.addAll(keywordSearch(q, topK));
         }
-        // 3. RRF融合，多取一些候选给 Rerank
-        List<String> candidates = rrfMerge(vectorResults, keywordResults, topK * 2);
+
+        List<VectorKnowledge> candidates = rrfMerge(vectorResults, keywordResults, topK * 2);
         log.info("RRF融合候选：{} 条", candidates.size());
         if (candidates.isEmpty()) {
-            return "";
+            return List.of();
         }
-        // 4. LLM Rerank 精排
-        List<String> ranked = llmRerank(query, candidates, topK);
+
+        List<VectorKnowledge> ranked = llmRerank(query, candidates, topK);
         log.info("Rerank后输出：{} 条", ranked.size());
-        return String.join("\n---\n", ranked);
+        return ranked;
+    }
+
+    private String formatCitation(VectorKnowledge vk) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(vk.getContent());
+        if (vk.getDocTitle() != null) {
+            sb.append("\n[来源：《").append(vk.getDocTitle()).append("》");
+            if (vk.getPageNum() != null) sb.append(" 第").append(vk.getPageNum()).append("页");
+            if (vk.getContext() != null) sb.append(" ").append(vk.getContext());
+            sb.append("]");
+        }
+        return sb.toString();
     }
 
     /**
      * 向量检索：查 vector_knowledge 表，pgvector 余弦相似度
      */
-    private List<Document> vectorSearch(String query, int topK) {
+    private List<VectorKnowledge> vectorSearch(String query, int topK) {
         float[] qEmbedding = embeddingService.embed(query);
         String vecStr = toVectorString(qEmbedding);
-        return vectorKnowledgeMapper.vectorSearch(vecStr, 0.5, topK).stream()
-                .map(vk -> new Document(vk.getContent()))
-                .collect(Collectors.toList());
+        return vectorKnowledgeMapper.vectorSearch(vecStr, 0.5, topK);
     }
 
     private String toVectorString(float[] embedding) {
@@ -98,7 +132,7 @@ public class RagRetrievalService {
     /**
      * 关键词检索：PostgreSQL LIKE 模糊匹配，统一转为 Document
      */
-    private List<Document> keywordSearch(String query, int limit) {
+    private List<VectorKnowledge> keywordSearch(String query, int limit) {
         LambdaQueryWrapper<VectorKnowledge> wrapper = new LambdaQueryWrapper<>();
         String[] terms = query.split("[\\s，,。.！!？?、；;：:]+");
         wrapper.and(w -> {
@@ -113,9 +147,7 @@ public class RagRetrievalService {
             }
         });
         wrapper.last("limit " + limit);
-        return vectorKnowledgeMapper.selectList(wrapper).stream()
-                .map(vk -> new Document(vk.getContent()))
-                .collect(Collectors.toList());
+        return vectorKnowledgeMapper.selectList(wrapper);
     }
 
 
@@ -150,21 +182,26 @@ public class RagRetrievalService {
      * RRF_score(doc) = Σ 1/(k + rank_i)，k=60
      * 两个列表都已按相关度从高到低排序
      */
-    private List<String> rrfMerge(List<Document> vectorDocs, List<Document> keywordDocs, int topK) {
+    private List<VectorKnowledge> rrfMerge(List<VectorKnowledge> vectorDocs, List<VectorKnowledge> keywordDocs, int topK) {
         Map<String, Double> scoreMap = new LinkedHashMap<>();
+        Map<String, VectorKnowledge> docMap = new LinkedHashMap<>();
         double k = 60;
 
         for (int i = 0; i < vectorDocs.size(); i++) {
-            scoreMap.merge(vectorDocs.get(i).getText().trim(), 1.0 / (k + i + 1), Double::sum);
+            String key = vectorDocs.get(i).getContent().trim();
+            scoreMap.merge(key, 1.0 / (k + i + 1), Double::sum);
+            docMap.putIfAbsent(key, vectorDocs.get(i));
         }
         for (int i = 0; i < keywordDocs.size(); i++) {
-            scoreMap.merge(keywordDocs.get(i).getText().trim(), 1.0 / (k + i + 1), Double::sum);
+            String key = keywordDocs.get(i).getContent().trim();
+            scoreMap.merge(key, 1.0 / (k + i + 1), Double::sum);
+            docMap.putIfAbsent(key, keywordDocs.get(i));
         }
 
         return scoreMap.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                 .limit(topK)
-                .map(Map.Entry::getKey)
+                .map(e -> docMap.get(e.getKey()))
                 .collect(Collectors.toList());
     }
 
@@ -172,15 +209,15 @@ public class RagRetrievalService {
     /**
      *  LLM Rerank：用 LLM 对候选文档打分重排，取 topK
      */
-    private List<String> llmRerank(String query,List<String> candidates,int topK){
-        if(candidates.size()<=topK){
+    private List<VectorKnowledge> llmRerank(String query, List<VectorKnowledge> candidates, int topK) {
+        if (candidates.size() <= topK) {
             return candidates;
         }
-        StringBuilder sb=new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         for (int i = 0; i < candidates.size(); i++) {
-            sb.append(String.format("[%d] %s\n\n", i, candidates.get(i)));
+            sb.append(String.format("[%d] %s\n\n", i, candidates.get(i).getContent()));
         }
-        String prompt=String.format("""
+        String prompt = String.format("""
             你是检索质量评估专家，请对以下候选文档进行相关性打分。
             【用户问题】%s
             【候选文档】
@@ -188,18 +225,16 @@ public class RagRetrievalService {
             要求：选出与问题最相关的%d条文档，每行输出一个编号（如 3,7,1,5），按相关度从高到低排序。
             只输出编号列表，用逗号分隔。
             """, query, sb.toString(), topK);
-        String raw=chatModel.call(prompt).trim();
-        List<Integer> order=parseRerankOrder(raw,candidates.size());
-        List<String> result=new ArrayList<>();
+        String raw = chatModel.call(prompt).trim();
+        List<Integer> order = parseRerankOrder(raw, candidates.size());
+        List<VectorKnowledge> result = new ArrayList<>();
         for (int idx : order) {
-            if(result.size()>=topK){
-                break;
-            }
-            if(idx>=0 && idx< candidates.size()){
+            if (result.size() >= topK) break;
+            if (idx >= 0 && idx < candidates.size()) {
                 result.add(candidates.get(idx));
             }
         }
-        if(result.isEmpty()){
+        if (result.isEmpty()) {
             log.warn("Rerank解析失败，使用原始排序");
             return candidates.subList(0, Math.min(topK, candidates.size()));
         }
@@ -217,23 +252,5 @@ public class RagRetrievalService {
             } catch (NumberFormatException ignored) {}
         }
         return order;
-    }
-
-
-
-
-    /**
-     *  3.解析 PDF 文件，提取纯文本内容
-     */
-    public String extractPdfContent(MultipartFile file) {
-        try(PDDocument document= Loader.loadPDF(file.getBytes())){
-            PDFTextStripper stripper = new PDFTextStripper();
-            stripper.setSortByPosition(true);
-            String text=stripper.getText(document);
-            log.info("PDF解析完成，页数：{}，文本长度：{}", document.getNumberOfPages(), text.length());
-            return text;
-        }catch (IOException e){
-            throw new IllegalArgumentException("PDF解析失败:"+e.getMessage(),e);
-        }
     }
 }

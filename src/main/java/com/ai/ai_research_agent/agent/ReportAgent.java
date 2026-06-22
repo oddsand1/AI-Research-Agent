@@ -22,6 +22,15 @@ public class ReportAgent {
     public AgentContext generateReport(AgentContext context) {
         log.info("【报告智能体】开始生成报告，任务ID：{}", context.getTaskId());
         try {
+            // 0. 兜底：无分析内容时拒绝生成，防止 LLM 瞎编
+            String analysis = context.getAnalyzedContent();
+            if (analysis == null || analysis.isBlank() || analysis.contains("信息不足") || analysis.contains("无可分析")) {
+                String msg = "无法生成报告：当前信息不足以支撑分析，建议补充搜索或更换检索策略。";
+                log.warn("【报告智能体】{}", msg);
+                context.setFinalReport(msg);
+                return context;
+            }
+
             // 1. 生成 Markdown 报告
             String prompt = buildPrompt(context);
             String result = chatModel.call(prompt).trim();
@@ -69,8 +78,13 @@ public class ReportAgent {
                ...
                ## 关键结论
                ## 参考文献来源
-            3. 参考文献部分必须标注所有数据来源和引用出处
-            4. 语言专业、客观、简洁，避免主观臆断
+            3. 关键结论后必须保留原文中的 [来源：...] 引用标记
+            4. 参考文献部分整理所有引用来源，标注文档标题和页码
+            5. 语言专业、客观、简洁，避免主观臆断
+            6. 严格基于【分析内容】，不得编造数据、结论或引用
+            7. 如果【分析内容】不足以支撑某个章节，写"该部分信息暂缺"，不要强行填充
+            6. 严格基于【分析内容】，不得编造数据、结论或引用
+            7. 如果【分析内容】不足以支撑某个章节，写"该部分信息暂缺"，不要强行填充
 
             【分析内容】
             %s

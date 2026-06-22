@@ -1,5 +1,6 @@
 package com.ai.ai_research_agent.agent;
 
+import com.ai.ai_research_agent.tool.PdfTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
@@ -8,6 +9,8 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 规划智能体：全局任务调度中心
@@ -23,9 +26,10 @@ public class PlanningAgent {
     private final RAGAgent ragAgent;
     private final AnalyzeAgent analyzeAgent;
     private final ReportAgent reportAgent;
+    private final PdfTool pdfTool;
 
     private static final int MAX_STEPS = 5;
-    private static final Set<String> ACTIONS = Set.of("SEARCH", "RAG", "ANALYZE", "REPORT", "STOP");
+    private static final Set<String> ACTIONS = Set.of("SEARCH", "RAG", "PDF_SEARCH", "PDF_READ", "PDF_TABLE", "PDF_IMAGE", "ANALYZE", "REPORT", "STOP");
 
     public AgentContext planTask(String userQuery, Long taskId) {
         log.info("【规划智能体】开始动态调度，任务ID：{}，提问：{}", taskId, userQuery);
@@ -45,6 +49,28 @@ public class PlanningAgent {
                 switch (action) {
                     case "SEARCH" -> context = searchAgent.search(context);
                     case "RAG" -> context = ragAgent.retrieve(context);
+                    case "PDF_SEARCH" -> {
+                        String pdfResult = pdfTool.searchPdf(context.getUserQuery(), 3);
+                        context.setRagContext(merge(context.getRagContext(), pdfResult));
+                    }
+                    case "PDF_READ" -> {
+                        String docId = extractDocId(context);
+                        int page = extractPage(context);
+                        String pageContent = pdfTool.readPage(docId, page);
+                        context.setRagContext(merge(context.getRagContext(), pageContent));
+                    }
+                    case "PDF_TABLE" -> {
+                        String docId = extractDocId(context);
+                        int page = extractPage(context);
+                        String tableResult = pdfTool.extractTable(docId, page);
+                        context.setRagContext(merge(context.getRagContext(), tableResult));
+                    }
+                    case "PDF_IMAGE" -> {
+                        String docId = extractDocId(context);
+                        int page = extractPage(context);
+                        String imageResult = pdfTool.analyzeImage(docId, page);
+                        context.setRagContext(merge(context.getRagContext(), imageResult));
+                    }
                     case "ANALYZE" -> context = analyzeAgent.analyze(context);
                     case "REPORT" -> {
                         context = reportAgent.generateReport(context);
@@ -83,7 +109,7 @@ public class PlanningAgent {
     private String decideNextAction(AgentContext ctx, List<String> history) {
         String prompt = buildDecisionPrompt(ctx, history);
         String raw = chatModel.call(prompt);
-        return normalize(raw);
+        return normalize(ctx, raw);
     }
 
     /**
@@ -110,17 +136,21 @@ public class PlanningAgent {
             - 分析结果：%s
             - 报告：%s
 
-            可选动作：SEARCH / RAG / ANALYZE / REPORT / STOP
+            可选动作：SEARCH / RAG / PDF_SEARCH / PDF_READ / PDF_TABLE / PDF_IMAGE / ANALYZE / REPORT / STOP
 
             决策规则：
             1. 涉及最新信息优先SEARCH，涉及历史知识优先RAG
-            2. 每项最多执行%d次（SEARCH已%d次，RAG已%d次）
-            3. 已有搜索和RAG内容但未分析 → ANALYZE
-            4. 分析完成 → REPORT
-            5. 报告已生成 → STOP
-            6. 从未执行过任何动作 → 根据问题类型选SEARCH或RAG
+            2. 问题明确提到PDF文档内容 → PDF_SEARCH 语义检索PDF片段
+            3. 需要阅读特定页面 → PDF_READ doc_id=文档名 page=页码
+            4. 需要提取表格数据 → PDF_TABLE doc_id=文档名 page=页码
+            5. 需要查看图片/图表 → PDF_IMAGE doc_id=文档名 page=页码
+            6. 每项最多执行%d次（SEARCH已%d次，RAG已%d次）
+            7. 已有搜索和RAG内容但未分析 → ANALYZE
+            8. 分析完成 → REPORT
+            9. 报告已生成 → STOP
+            10. 从未执行过任何动作 → 根据问题类型选SEARCH或RAG或PDF_SEARCH
 
-            只输出一个动作名称。
+            PDF_READ/PDF_TABLE/PDF_IMAGE 需附带 doc_id=xxx page=页码。只输出一个动作名称。
             """,
             ctx.getUserQuery(),
             history.isEmpty() ? "无" : String.join(" → ", history),
@@ -133,10 +163,17 @@ public class PlanningAgent {
     }
 
     /**
-     * 标准化 LLM 输出为有效动作名
+     * 标准化 LLM 输出为有效动作名，同时解析 docId 和 pageNum
      */
-    private String normalize(String raw) {
+    private String normalize(AgentContext ctx, String raw) {
         String upper = raw.trim().toUpperCase();
+
+        Matcher dm = Pattern.compile("DOC_ID[=:]\\s*(\\S+)", Pattern.CASE_INSENSITIVE).matcher(raw);
+        if (dm.find()) ctx.setDocId(dm.group(1).replaceAll("[\"']", ""));
+
+        Matcher pm = Pattern.compile("PAGE[=:]\\s*(\\d+)", Pattern.CASE_INSENSITIVE).matcher(raw);
+        if (pm.find()) ctx.setPageNum(Integer.parseInt(pm.group(1)));
+
         for (String action : ACTIONS) {
             if (upper.contains(action)) {
                 return action;
@@ -144,6 +181,19 @@ public class PlanningAgent {
         }
         log.warn("【规划智能体】LLM输出无法识别：{}，默认STOP", raw);
         return "STOP";
+    }
+
+    private String merge(String existing, String incoming) {
+        if (existing == null || existing.isBlank()) return incoming;
+        return existing + "\n\n" + incoming;
+    }
+
+    private String extractDocId(AgentContext ctx) {
+        return ctx.getDocId() != null ? ctx.getDocId() : "unknown";
+    }
+
+    private int extractPage(AgentContext ctx) {
+        return ctx.getPageNum() != null ? ctx.getPageNum() : 1;
     }
 
     private boolean notBlank(String s) {

@@ -19,7 +19,11 @@ public class RAGAgent {
         String ragContent=ragRetrievalService.retrieveContext(userQuery,3);
         context.setRagContext(ragContent);
 
-        log.info("【RAG检索智能体】检索完成，匹配内容长度：{}", ragContent.length());
+        if (ragContent.isEmpty()) {
+            log.warn("【RAG检索智能体】未检索到相关内容：{}", userQuery);
+        } else {
+            log.info("【RAG检索智能体】检索完成，匹配内容长度：{}", ragContent.length());
+        }
         return context;
     }
 }
