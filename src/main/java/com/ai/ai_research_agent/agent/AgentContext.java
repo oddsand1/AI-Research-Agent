@@ -22,4 +22,8 @@ public class AgentContext {
     private String finalReport;
     /** 任务状态：WAIT/RUN/SUCCESS/FAIL */
     private String taskStatus;
+    /** PDF 文档ID（精确读页/抽表时使用） */
+    private String docId;
+    /** PDF 页码（精确读页/抽表时使用） */
+    private Integer pageNum;
 }
