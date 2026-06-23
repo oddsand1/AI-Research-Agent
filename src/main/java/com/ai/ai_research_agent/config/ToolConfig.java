@@ -1,4 +1,4 @@
-package com.ai.ai_research_agent.tool;
+package com.ai.ai_research_agent.config;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
 import org.springframework.ai.chat.client.ChatClient;
