@@ -1,5 +1,6 @@
 package com.ai.ai_research_agent.agent;
 
+import com.ai.ai_research_agent.context.AgentContext;
 import com.ai.ai_research_agent.tool.WebCrawlerTool;
 import com.ai.ai_research_agent.tool.WebSearchTool;
 import lombok.RequiredArgsConstructor;

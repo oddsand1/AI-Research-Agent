@@ -1,7 +1,7 @@
 package com.ai.ai_research_agent.service;
 
 
-import com.ai.ai_research_agent.agent.AgentContext;
+import com.ai.ai_research_agent.context.AgentContext;
 import com.ai.ai_research_agent.agent.PlanningAgent;
 import com.ai.ai_research_agent.entity.ResearchTask;
 import com.ai.ai_research_agent.mapper.ResearchTaskMapper;

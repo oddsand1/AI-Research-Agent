@@ -1,5 +1,6 @@
 package com.ai.ai_research_agent.agent;
 
+import com.ai.ai_research_agent.context.AgentContext;
 import com.ai.ai_research_agent.tool.PdfTool;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

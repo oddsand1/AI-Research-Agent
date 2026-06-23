@@ -1,4 +1,4 @@
-package com.ai.ai_research_agent.agent;
+package com.ai.ai_research_agent.context;
 
 import lombok.Data;
 
