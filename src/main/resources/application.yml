@@ -5,14 +5,14 @@ spring:
   # PostgreSQL
   datasource:
     url: jdbc:postgresql://localhost:5432/deep_research?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
-    username: postgres
-    password: 123456
+    username: 
+    password: 
     driver-class-name: org.postgresql.Driver
 
 
   ai:
     dashscope:
-      api-key: sk-3906fd9bb7044413911675be69711fdc
+      api-key: 
       chat:
         options:
           model: qwen-vl-max
