@@ -1,7 +1,7 @@
 package com.ai.ai_research_agent.controller;
 
 
-import com.ai.ai_research_agent.agent.AgentContext;
+import com.ai.ai_research_agent.context.AgentContext;
 import com.ai.ai_research_agent.common.Result;
 import com.ai.ai_research_agent.dto.ReportQueryDTO;
 import com.ai.ai_research_agent.dto.ResearchRequestDTO;
@@ -13,7 +13,6 @@ import com.ai.ai_research_agent.vo.ResearchResponseVO;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
-
 import java.util.List;
 
 @RestController
